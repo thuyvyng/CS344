@@ -1,0 +1,271 @@
+#!/bin/bash
+
+#Function: error_1
+#Purpose: Gets called in functions that should only have one parameter passed to it (transpose,dims,mean)
+#        This function counts for how many command line arguments have been passed
+#        Also passes back number of rows and columns
+#        Also checks each command line argument and ensures it's a valid file (real and w/ correct permissions and not empty)
+error_1() { 
+ datafilepath="datafile$$"
+ if [ $# = 1 ] #this if statements check if stdin or file
+ then
+    cat > "$datafilepath"
+ elif [ $# = 2 ]
+ then 
+   datafilepath=$2
+ fi
+ if [ -z "$3" ] #error handling for if file exits
+ then
+   if [ -f $2 ]
+   then 
+      #given files are valid, check how many rows and columns
+      rows=$(cat "$datafilepath" | wc -l) #counts how many lines
+      line=$(head -n 1 "$datafilepath") #takes first line of file
+      cols=$(echo "$line" | wc -w)
+   else 
+      echo "ERROR" 1>&2
+      exit 1
+   fi
+ else
+   echo "ERROR" 1>&2
+   exit 1
+ fi
+
+#error handling for valid files
+ if ! [ -r "$datafilepath" ] #readable
+ then
+    echo "File not found!" >&2
+    exit 1
+ fi
+ if ! [ -s "$datafilepath" ] #empty
+ then
+    echo "File not found!" >&2
+    exit 1
+ fi
+ }
+
+#Function:error_2
+#Purpose:gets called in functions that are supposed ot have 2 command line arguments (add & multiply)
+#        checks and makes sure both arguments passed are valid
+error_2() { 
+ 
+ if [ $# -ne 3 ]
+ then
+    echo "invalid number of arguments" >&2 
+    exit 1
+ fi
+ if ! [ -r "$2" ]
+ then
+    echo "File not found!" >&2 
+ fi
+  if ! [ -r "$3" ]
+ then
+    echo "File not found!" >&2 
+ fi
+ }
+#Function:dims_helper
+#Purpose:This actually calcutes the dimensions of a matrix (dims echos it out but doesn't calc)
+dims_helper() { 
+ rows=$(cat "$1" | wc -l) #counts how many lines
+ line=$(head -n 1 "$1") #takes first line of file
+ cols=$(echo "$line" | wc -w) #counts how many words in first line of file
+ }
+ #Function:dims
+ #Purpose:if files are valid passes it to dim helper so dim helper can calculate size, then dims prints it out
+dims() {
+ error_1 $@ #error handling and checks how many rows and cols
+ echo $rows $cols
+ }
+#Function: Transpose
+#Purpose: Transposes matrix mxn -> nxm 
+transpose() { 
+ error_1 $@
+ line=$(head -n 1 "$datafilepath")
+ c=$(echo "$line" | wc -w)
+
+ #for each column we need to turn into rows
+ for ((j = 0; j < $c ; j++));
+ do
+   index=$(($j+1))
+   try=$(cat "$datafilepath" | cut -d $'\t' -f $index) #takes from file and "cuts" to get column we want and turns into rows
+   echo $try | tr -s ' ' '\t' #replaces spaces with tabs then prints it out
+ done
+ } 
+
+#function:get_element
+#parameters: 1 the file,2 column,3 row
+#purpose:"returns" the number at the index specified
+#used in basically all the math functions below
+get_element() { 
+ column=$(cat "$1" | cut -d $'\t' -f $3 ) 
+ element=$(echo $column | cut -d ' ' -f $2 )
+ }
+
+mean() { 
+ error_1 $@
+
+ r=$rows
+ c=$cols
+
+ endstring='' #empty string to append/concatenate to
+ totalsum=0
+ #loop over matrix
+ for ((i = 0 ; i < $c ; i++));
+ do
+   for ((j = 0; j < $r ; j++))
+   do
+      #apparently cut starts at 1 so that's what correct_ does
+      correct_i=$(($i+1)) 
+      correct_j=$(($j+1))
+
+      #gets element at index passed
+      get_element $datafilepath $correct_j $correct_i
+
+      #sum current index plus previous from column
+      totalsum=$((totalsum + element))
+   done
+   average=$((totalsum / r)) #did this so it adds and then rounds correctly
+   remainder=$((totalsum % r))
+   round=$((r / 2))
+   negativeround=$((round * -1))
+   #echo $average $rows $remainder $round $negativeround
+   if [ $average -ge 0 ] && [ $remainder -ge $round ] && [ $remainder -ne 0 ]
+   then
+      average=$((average + 1))
+   elif [ $average -lt 0 ] && [ $remainder -le $negativeround ] && [ $remainder -ne 0 ]
+   then
+      average=$((average - 1))
+   fi
+
+   endstring="${endstring} ${average}"          #ads current average to string with all previous columns
+   totalsum=0
+ done
+ echo ${endstring} | tr -s ' ' '\t'          #prints it and then replaces spaces with tabs to follow rules
+ }
+
+#function:dim_eq
+#paramaters:file1, file2
+#purpose: makes sure that the two matricies are the same size (if invalid ends program and prints error message)
+dim_eq() { 
+ dims_helper $1
+ row1=$rows
+ col1=$cols
+ dims_helper $2
+ row2=$rows
+ col2=$cols
+ if [ $row1 -ne $row2 ] #checks if row1 == row2
+ then
+    echo "matricies dimensions do not match" >&2 
+    exit 1
+ fi
+ if [ $col1 -ne $col2 ] #checks if col1 == col2
+ then
+    echo "matricies dimensions do not match" >&2 
+    exit 1
+ fi
+ }
+
+ #function:add
+ #parameters: file1, file2,
+ #purpose:adds to matricies together
+add() { 
+ error_2 $@
+ dim_eq $2 $3 #checks that they're the same size
+
+ rows=$(cat "$2" | wc -l)
+ line=$(head -n 1 "$2")
+ cols=$(echo "$line" | wc -w)
+
+
+ sum=0
+ endstring=''
+ for ((i = 0 ; i < $rows ; i++));
+ do
+   for ((j = 0; j < $cols ; j++))
+   do
+      #cut starts at index 1 so correct_x fixes this
+      correct_i=$(($i+1))
+      correct_j=$(($j+1))
+
+      #grabs element at index
+      get_element $2 $correct_i $correct_j
+      e1=$element #first element
+      get_element $3 $correct_i $correct_j
+      e2=$element  #second element
+
+      #adds element together
+      sum=$((e1 + e2))
+
+      #adds sum to the string (for printing out purposes)
+      endstring="${endstring} ${sum}"
+   done
+   echo ${endstring} | tr -s ' ' '\t' #prints it and changes spaces to tab accoriding to assignment rules
+   endstring=''
+ done
+ } 
+
+ #function: dim_trans
+ #parameters:matrix1,matrix2
+ #purpose: checks if the matricies can be multiplied mxn * nxh 
+dim_trans() { 
+ dims_helper $1
+ row1=$rows
+ col1=$cols
+ dims_helper $2
+ row2=$rows
+ col2=$cols
+ if [ $col1 -ne $row2 ] # checks if the n's are matching
+ then
+    echo "matricies dimensions do not match" >&2 
+    exit 1
+ fi
+ }
+multiply() { 
+ error_2 $@
+ dim_trans $2 $3
+
+ rows1=$(cat "$2" | wc -l)
+ line1=$(head -n 1 "$2")
+ cols1=$(echo "$line" | wc -w)
+ rows2=$(cat "$3" | wc -l)
+ line2=$(head -n 1 "$3")
+ cols2=$(echo "$line2" | wc -w)
+
+
+ mult=0
+ endstring=''
+ #we know the matrix will be of dimensions row1xcols2 so it'll have a double for loop for that size
+ for ((i = 0 ; i < $rows1 ; i++));
+ do
+   for ((j = 0; j < $cols2 ; j++))
+   do
+      #we know that we have to add row2/col1 items so we have a third for loop to add all of those elements
+      for ((k = 0; k < $rows2 ; k++))
+      do
+         #cut starts at index 1 so correct_x fixes this
+         correct_i=$(($i+1))
+         correct_j=$(($j+1))
+         correct_k=$(($k+1))
+
+         #the elements from the first array will be in a fixed row, k changes
+         get_element $2 $correct_i $correct_k
+         first_array=$element
+
+         #elements from the second array will be in a fixed column, k changes
+         get_element $3 $correct_k $correct_j
+         second_array=$element
+
+         #add up the current multiple with all previous ones
+         mult=$((mult + (first_array*second_array)))
+      done
+      #concatenate all the multiples on the same row
+      endstring="${endstring} ${mult}"
+      mult=0
+   done
+   echo ${endstring} | tr -s ' ' '\t' #prints it and changes spaces to tab accoriding to assignment rules
+   endstring=''
+ done
+ } 
+
+#taking in command line argument
+$1 "${@:1}"
